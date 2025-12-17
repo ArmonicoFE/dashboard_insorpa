@@ -3,20 +3,28 @@
 namespace App\Exports;
 
 use Illuminate\Support\Facades\DB;
-use Maatwebsite\Excel\Concerns\FromArray;
+use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
+use Maatwebsite\Excel\Concerns\WithMapping;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
+use Carbon\Carbon;
 
-class DtesFiltradosExport implements FromArray, WithHeadings, WithStyles, ShouldAutoSize
+class DtesFiltradosExport implements
+    FromQuery,
+    WithHeadings,
+    WithStyles,
+    ShouldAutoSize,
+    WithMapping
 {
-    protected $params;
-    protected $tiposDte;
+    protected array $filters;
+    protected array $tiposDte;
 
-    public function __construct($params)
+    public function __construct(array $filters)
     {
-        $this->params = $params;
+        $this->filters = $filters;
+
         $this->tiposDte = [
             '01' => 'Factura Electrónica',
             '03' => 'Crédito Fiscal',
@@ -28,37 +36,83 @@ class DtesFiltradosExport implements FromArray, WithHeadings, WithStyles, Should
         ];
     }
 
-    public function array(): array
+    /**
+     * Query principal (SIN JSON, SIN funciones)
+     */
+    public function query()
     {
-        // Obtener todos los datos sin paginación
-        $data = DB::connection('pgsql')->select("
-            SELECT * FROM get_dtes_filtrados(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ORDER BY get_dtes_filtrados.fh_procesamiento DESC
-        ", $this->params);
-
-        $rows = [];
-        foreach ($data as $dte) {
-            $rows[] = [
-                \Carbon\Carbon::parse($dte->fh_procesamiento)->setTimezone('America/El_Salvador')->format('Y-m-d H:i:s'),
-                $dte->tienda,
-                $dte->transaccion,
-                $dte->documento_receptor,
-                $dte->nombre_receptor,
-                $dte->neto,
-                $dte->iva,
-                $dte->total,
-                $this->tiposDte[$dte->tipo_dte] ?? 'Desconocido',
-                $dte->estado,
-                $dte->observaciones != '[]' ? $dte->observaciones : '',
-                $dte->cod_generacion,
-                $dte->numero_control,
-                $dte->sello_recibido,
-            ];
-        }
-
-        return $rows;
+        return DB::connection('pgsql')->table('v_dtes')
+            ->select([
+                'fh_procesamiento',
+                'tienda',
+                'transaccion',
+                'documento_receptor',
+                'nombre_receptor',
+                'neto',
+                'iva',
+                'total',
+                'tipo_dte',
+                'estado',
+                'observaciones',
+                'cod_generacion',
+                'numero_control',
+                'sello_recibido',
+            ])
+            ->when(
+                $this->filters['fecha_inicio'],
+                fn($q) =>
+                $q->where('fh_procesamiento', '>=', $this->filters['fecha_inicio'])
+            )
+            ->when(
+                $this->filters['fecha_fin'],
+                fn($q) =>
+                $q->where('fh_procesamiento', '<=', $this->filters['fecha_fin'])
+            )
+            ->when(
+                $this->filters['estado'],
+                fn($q) =>
+                $q->where('estado', $this->filters['estado'])
+            )
+            ->when(
+                $this->filters['tienda'],
+                fn($q) =>
+                $q->where('tienda', 'ILIKE', "%{$this->filters['tienda']}%")
+            )
+            ->when(
+                $this->filters['transaccion'],
+                fn($q) =>
+                $q->where('transaccion', 'ILIKE', "%{$this->filters['transaccion']}%")
+            )
+            ->orderBy('fh_procesamiento');
     }
 
+
+    /**
+     * Mapeo de datos para formatear la fecha
+     */
+    public function map($row): array
+    {
+        return [
+            $row->fh_procesamiento ? Carbon::parse($row->fh_procesamiento)->timezone('America/El_Salvador')->format('d/m/Y H:i:s') : '',
+            $row->tienda,
+            $row->transaccion,
+            $row->documento_receptor,
+            $row->nombre_receptor,
+            $row->neto,
+            $row->iva,
+            $row->total,
+            $this->tiposDte[$row->tipo_dte] ?? $row->tipo_dte,
+            $row->estado,
+            $row->observaciones,
+            $row->cod_generacion,
+            $row->numero_control,
+            $row->sello_recibido,
+        ];
+    }
+
+    /**
+     * Encabezados
+     */
     public function headings(): array
     {
         return [
@@ -67,7 +121,7 @@ class DtesFiltradosExport implements FromArray, WithHeadings, WithStyles, Should
             'Transacción',
             'Documento Receptor',
             'Nombre Receptor',
-            'Importe',
+            'Neto',
             'IVA',
             'Total',
             'Tipo DTE',
@@ -79,25 +133,18 @@ class DtesFiltradosExport implements FromArray, WithHeadings, WithStyles, Should
         ];
     }
 
+
+    /**
+     * Estilos
+     */
     public function styles(Worksheet $sheet)
     {
         return [
-            // Estilo para la fila de encabezados
             1 => [
-                'font' => [
-                    'bold' => true,
-                    'size' => 12,
-                ],
+                'font' => ['bold' => true],
                 'fill' => [
                     'fillType' => \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID,
-                    'startColor' => [
-                        'rgb' => 'E3F2FD',
-                    ],
-                ],
-                'borders' => [
-                    'allBorders' => [
-                        'borderStyle' => \PhpOffice\PhpSpreadsheet\Style\Border::BORDER_THIN,
-                    ],
+                    'startColor' => ['rgb' => 'E3F2FD'],
                 ],
             ],
         ];

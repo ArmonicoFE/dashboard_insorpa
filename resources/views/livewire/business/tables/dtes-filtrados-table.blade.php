@@ -5,12 +5,12 @@
             <div class="row">
                 <div class="col-md-3 mb-3">
                     <label for="fecha_inicio" class="form-label">Desde:</label>
-                    <input type="datetime-local" wire:model.live.debounce.500ms="fecha_inicio" class="form-control"
+                    <input type="date" wire:model.live.debounce.500ms="fecha_inicio" class="form-control"
                         placeholder="Desde">
                 </div>
                 <div class="col-md-3 mb-3">
                     <label for="fecha_fin" class="form-label">Hasta:</label>
-                    <input type="datetime-local" wire:model.live.debounce.500ms="fecha_fin" class="form-control"
+                    <input type="date" wire:model.live.debounce.500ms="fecha_fin" class="form-control"
                         placeholder="Hasta">
                 </div>
                 <div class="col-md-3 mb-3">
@@ -18,7 +18,7 @@
                     <select wire:model.live.debounce.500ms="tienda" class="form-select">
                         <option value="">Todas las tiendas</option>
                         @foreach ($tiendas as $tienda)
-                            <option value="{{ $tienda->tienda }}">{{ $tienda->tienda }}</option>
+                            <option value="{{ $tienda->codigo }}">{{ $tienda->codigo }} - {{ $tienda->nombre }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -56,20 +56,25 @@
                 </div>
             </div>
             <div class="row">
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label for="cod_generacion" class="form-label">Código Generación:</label>
                     <input type="text" wire:model.live.debounce.500ms="cod_generacion" class="form-control"
                         placeholder="Código Generación">
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label for="sello_recibido" class="form-label">Sello Recibido:</label>
                     <input type="text" wire:model.live.debounce.500ms="sello_recibido" class="form-control"
                         placeholder="Sello Recibido">
                 </div>
-                <div class="col-md-4 mb-3">
+                <div class="col-md-3 mb-3">
                     <label for="numero_control" class="form-label">Número de Control:</label>
                     <input type="text" wire:model.live.debounce.500ms="numero_control" class="form-control"
                         placeholder="Número de Control">
+                </div>
+                <div class="col-md-3 mb-3">
+                    <label for="transaccion" class="form-label">Transacción:</label>
+                    <input type="text" wire:model.live.debounce.500ms="transaccion" class="form-control"
+                        placeholder="Transacción">
                 </div>
             </div>
             <div class="row">
@@ -102,7 +107,7 @@
     <div class="position-relative">
         <!-- Overlay con Loader -->
         <div wire:loading.class="d-flex" wire:loading.class.remove="d-none" 
-             wire:target="fecha_inicio,fecha_fin,estado,tienda,documento_receptor,nombre_receptor,cod_generacion,sello_recibido,numero_control,total_min,total_max,perPage,nextPage,previousPage,resetFilters,exportToExcel"
+             wire:target="fecha_inicio,fecha_fin,estado,tienda,documento_receptor,nombre_receptor,cod_generacion,sello_recibido,numero_control,total_min,total_max,perPage,nextPage,previousPage,resetFilters,exportToExcel,transaccion"
              class="position-absolute w-100 h-100 d-none justify-content-center align-items-center" 
              style="background-color: rgba(255, 255, 255, 0.9); z-index: 1000; top: 0; left: 0; min-height: 400px;">
             <div class="text-center">
@@ -112,7 +117,7 @@
                 <div class="mt-2">
                     <strong class="text-primary">
                         <span wire:loading wire:target="exportToExcel">Generando archivo Excel...</span>
-                        <span wire:loading wire:target="fecha_inicio,fecha_fin,estado,tienda,documento_receptor,nombre_receptor,cod_generacion,sello_recibido,numero_control,total_min,total_max,perPage,nextPage,previousPage,resetFilters">Cargando datos...</span>
+                        <span wire:loading wire:target="fecha_inicio,fecha_fin,estado,tienda,documento_receptor,nombre_receptor,cod_generacion,sello_recibido,numero_control,total_min,total_max,perPage,nextPage,previousPage,resetFilters,transaccion">Cargando datos...</span>
                     </strong>
                 </div>
             </div>
@@ -145,9 +150,9 @@
                         <td>{{ $dte->tienda }}</td>
                         <td>{{ $dte->transaccion }}</td>
                         <td>{{ $dte->documento_receptor }} <br> {{ $dte->nombre_receptor }}</td>
-                        <td>{{ $dte->neto }}</td>
-                        <td>{{ $dte->iva }}</td>
-                        <td>{{ $dte->total }}</td>
+                        <td>${{ number_format($dte->neto, 2, '.', ',') }}</td>
+                        <td>${{ number_format($dte->iva, 2, '.', ',') }}</td>
+                        <td>${{ number_format($dte->total, 2, '.', ',') }}</td>
                         <td>{{ $tiposDte[$dte->tipo_dte] ?? 'Desconocido' }}</td>
                         <td>{{ $dte->estado }}</td>
                         <td>{{ $dte->observaciones != '[]' ? $dte->observaciones : '' }}</td>

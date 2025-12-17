@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
 use App\Exports\DtesFiltradosExport;
+use App\Models\Tienda;
 use Maatwebsite\Excel\Facades\Excel;
 
 class DtesFiltradosTable extends Component
@@ -24,6 +25,7 @@ class DtesFiltradosTable extends Component
     public $numero_control;
     public $total_min;
     public $total_max;
+    public $transaccion;
 
     public $perPage = 10;
     public $page = 1;
@@ -52,6 +54,7 @@ class DtesFiltradosTable extends Component
         'numero_control',
         'total_min',
         'total_max',
+        'transaccion',
         'perPage',
         'page'
     ];
@@ -95,66 +98,113 @@ class DtesFiltradosTable extends Component
         return min($this->page * $this->perPage, $this->totalFiltered);
     }
 
+    protected function baseQuery()
+    {
+        return DB::connection('pgsql')->table('v_dtes')
+            ->when(
+                $this->fecha_inicio,
+                fn($q) =>
+                $q->where(
+                    'fh_procesamiento',
+                    '>=',
+                    date('Y-m-d H:i:s', strtotime($this->fecha_inicio . 'T00:00:00 +6 hours'))
+                )
+            )
+            ->when(
+                $this->fecha_fin,
+                fn($q) =>
+                $q->where(
+                    'fh_procesamiento',
+                    '<=',
+                    date('Y-m-d H:i:s', strtotime($this->fecha_fin . 'T23:59:59 +6 hours'))
+                )
+            )
+            ->when(
+                $this->estado && $this->estado !== 'TODOS',
+                fn($q) =>
+                $q->where('estado', $this->estado)
+            )
+            ->when(
+                $this->tienda,
+                fn($q) =>
+                $q->where('tienda', 'ILIKE', "%{$this->tienda}%")
+            )
+            ->when(
+                $this->transaccion,
+                fn($q) =>
+                $q->where('transaccion', 'ILIKE', "%{$this->transaccion}%")
+            )
+            ->when(
+                $this->documento_receptor,
+                fn($q) =>
+                $q->where('documento_receptor', 'ILIKE', "%{$this->documento_receptor}%")
+            )
+            ->when(
+                $this->nombre_receptor,
+                fn($q) =>
+                $q->where('nombre_receptor', 'ILIKE', "%{$this->nombre_receptor}%")
+            )
+            ->when(
+                $this->cod_generacion,
+                fn($q) =>
+                $q->where('cod_generacion', 'ILIKE', "%{$this->cod_generacion}%")
+            )
+            ->when(
+                $this->sello_recibido,
+                fn($q) =>
+                $q->where('sello_recibido', 'ILIKE', "%{$this->sello_recibido}%")
+            )
+            ->when(
+                $this->numero_control,
+                fn($q) =>
+                $q->where('numero_control', 'ILIKE', "%{$this->numero_control}%")
+            )
+            ->when(
+                $this->total_min,
+                fn($q) =>
+                $q->where('total_numeric', '>=', $this->total_min)
+            )
+            ->when(
+                $this->total_max,
+                fn($q) =>
+                $q->where('total_numeric', '<=', $this->total_max)
+            );
+    }
+
     public function render()
     {
-        $offset = ($this->page - 1) * $this->perPage;
+        $query = $this->baseQuery();
 
-        $params = [
-            !empty($this->fecha_inicio) ? date('Y-m-d H:i:s', strtotime($this->fecha_inicio . ' +6 hours')) : null,
-            !empty($this->fecha_fin) ? date('Y-m-d H:i:s', strtotime($this->fecha_fin . ' +6 hours')) : null,
-            !empty($this->estado) ? $this->estado : null,
-            !empty($this->tienda) ? $this->tienda : null,
-            !empty($this->documento_receptor) ? $this->documento_receptor : null,
-            !empty($this->nombre_receptor) ? $this->nombre_receptor : null,
-            !empty($this->cod_generacion) ? $this->cod_generacion : null,
-            !empty($this->sello_recibido) ? $this->sello_recibido : null,
-            !empty($this->numero_control) ? $this->numero_control : null,
-            !empty($this->total_min) ? $this->total_min : null,
-            !empty($this->total_max) ? $this->total_max : null
-        ];
+        // Conteo filtrado (rápido con índices)
+        $this->totalFiltered = (clone $query)->count();
 
-        $data = DB::connection('pgsql')->select("
-            SELECT * FROM get_dtes_filtrados(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ORDER BY get_dtes_filtrados.fh_procesamiento DESC
-            OFFSET ? LIMIT ?
-        ", array_merge($params, [$offset, $this->perPage]));
+        // Total general (cacheable si quieres)
+        $this->totalRecords = DB::connection('pgsql')->table('v_dtes')->count();
 
-        $tiendas = DB::connection('pgsql')->select("SELECT DISTINCT apendice_item->>'valor' AS tienda
-            FROM dte_generados dg,
-                jsonb_array_elements(
-                    CASE 
-                        WHEN jsonb_typeof(dg.documento::jsonb->'apendice') = 'array' 
-                        THEN dg.documento::jsonb->'apendice' 
-                        ELSE '[]'::jsonb 
-                    END
-                ) AS apendice_item
-            WHERE apendice_item->>'campo' = 'Tienda'
-            ORDER BY tienda;
-        ");
+        // Datos paginados
+        $dtes = $query
+            ->orderByDesc('fh_procesamiento')
+            ->paginate($this->perPage, ['*'], 'page', $this->page);
 
-        // Total manual (para paginación)
-        $total = DB::connection('pgsql')->selectOne("
-            SELECT count(*) FROM get_dtes_filtrados(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ", $params)->count;
-
-        // Total de registros sin filtros
-        $totalRecords = DB::connection('pgsql')->selectOne("
-            SELECT count(*) FROM get_dtes_filtrados(null, null, null, null, null, null, null, null, null, null, null)
-        ")->count;
-
-        $this->totalFiltered = $total;
-        $this->totalRecords = $totalRecords;
+        // Tiendas desde columna normalizada
+        // $tiendas = DB::connection('pgsql')->table('v_dtes')
+        //     ->select('tienda')
+        //     ->whereNotNull('tienda')
+        //     ->distinct()
+        //     ->orderBy('tienda')
+        //     ->get();
+        $tiendas = Tienda::orderBy('nombre')->get();
 
         return view('livewire.business.tables.dtes-filtrados-table', [
-            'dtes' => collect($data),
-            'total' => $total,
-            'tiendas' => collect($tiendas),
+            'dtes' => $dtes,
+            'tiendas' => $tiendas,
+            'fromRecord' => $dtes->firstItem(),
+            'toRecord' => $dtes->lastItem(),
             'totalRecords' => $this->totalRecords,
             'totalFiltered' => $this->totalFiltered,
-            'fromRecord' => $this->getFromRecord(),
-            'toRecord' => $this->getToRecord(),
         ]);
     }
+
 
     public function resetFilters()
     {
@@ -176,22 +226,27 @@ class DtesFiltradosTable extends Component
 
     public function exportToExcel()
     {
-        $params = [
-            !empty($this->fecha_inicio) ? date('Y-m-d H:i:s', strtotime($this->fecha_inicio . ' +6 hours')) : null,
-            !empty($this->fecha_fin) ? date('Y-m-d H:i:s', strtotime($this->fecha_fin . ' +6 hours')) : null,
-            !empty($this->estado) ? $this->estado : null,
-            !empty($this->tienda) ? $this->tienda : null,
-            !empty($this->documento_receptor) ? $this->documento_receptor : null,
-            !empty($this->nombre_receptor) ? $this->nombre_receptor : null,
-            !empty($this->cod_generacion) ? $this->cod_generacion : null,
-            !empty($this->sello_recibido) ? $this->sello_recibido : null,
-            !empty($this->numero_control) ? $this->numero_control : null,
-            !empty($this->total_min) ? $this->total_min : null,
-            !empty($this->total_max) ? $this->total_max : null
+        $filters = [
+            'fecha_inicio' => $this->fecha_inicio
+                ? date('Y-m-d H:i:s', strtotime($this->fecha_inicio . 'T00:00:00 +6 hours'))
+                : null,
+            'fecha_fin' => $this->fecha_fin
+                ? date('Y-m-d H:i:s', strtotime($this->fecha_fin . 'T23:59:59 +6 hours'))
+                : null,
+            'estado' => $this->estado !== 'TODOS' ? $this->estado : null,
+            'tienda' => $this->tienda,
+            'transaccion' => $this->transaccion,
+            'documento_receptor' => $this->documento_receptor,
+            'nombre_receptor' => $this->nombre_receptor,
+            'total_min' => $this->total_min,
+            'total_max' => $this->total_max,
         ];
 
-        $fileName = 'Reporte de DTEs - ' . date('Y-m-d_H-i-s') . '.xlsx';
-
-        return Excel::download(new DtesFiltradosExport($params), $fileName);
+        return Excel::download(
+            new DtesFiltradosExport($filters),
+            'Reporte_DTEs_' . now()->format('Ymd_His') . '.xlsx'
+        );
     }
+
+
 }
