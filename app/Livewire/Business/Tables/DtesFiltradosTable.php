@@ -193,7 +193,7 @@ class DtesFiltradosTable extends Component
         //     ->distinct()
         //     ->orderBy('tienda')
         //     ->get();
-        $tiendas = Tienda::orderBy('nombre')->get();
+        $tiendas = Tienda::orderBy('codigo')->get();
 
         return view('livewire.business.tables.dtes-filtrados-table', [
             'dtes' => $dtes,
